@@ -1,0 +1,7 @@
+services:
+  - type: cron
+    name: telegram-tippbot
+    schedule: "0 9 * * *"  # Ez magyar idő szerint 11:00
+    runtime: python
+    buildCommand: ""
+    startCommand: "python bot.py"
