@@ -1,0 +1,8 @@
+
+services:
+  - type: cron
+    name: telegram-tippbot
+    schedule: "0 9 * * *"
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python bot.py"

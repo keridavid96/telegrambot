@@ -1,66 +1,59 @@
+
 import requests
 import datetime
-import os
+import random
 import pytz
-import telegram
+from telegram import Bot
 
-# Konfiguráció
-API_TOKEN = "402484016678a5bc1ccb125d96319634"
-TELEGRAM_TOKEN = "8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk"
-CHAT_ID = "1002892598463"
+# --- CONFIG --- #
+BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
+CHAT_ID = '6908414952'
+API_KEY = '402484016678a5bc1ccb125d96319634'
 
-# Cél bajnokságok
-LEAGUE_IDS = [106, 104, 87, 88, 39, 103, 62]  # példa: Írország, Svédország, Norvégia stb.
+HEADERS = {
+    'x-apisports-key': API_KEY
+}
 
-# Dátumkezelés (ma)
-tz = pytz.timezone('Europe/Budapest')
-today = datetime.datetime.now(tz).strftime("%Y-%m-%d")
+INTERESTING_LEAGUES = [
+    "Allsvenskan", "Superettan", "Premier Division", "First Division", 
+    "Veikkausliiga", "Eliteserien", "OBOS-ligaen"
+]
 
-# Küldésre készülő tippek
-tips = []
+def get_today_matches():
+    tz = pytz.timezone("Europe/Budapest")
+    today = datetime.datetime.now(tz).strftime("%Y-%m-%d")
+    url = f"https://v3.football.api-sports.io/fixtures?date={today}"
+    response = requests.get(url, headers=HEADERS)
+    if response.status_code != 200:
+        return []
 
-for league_id in LEAGUE_IDS:
-    url = f"https://v3.football.api-sports.io/fixtures?date={today}&league={league_id}&season=2024"
-    headers = {
-        "x-apisports-key": API_TOKEN
-    }
-    res = requests.get(url, headers=headers)
+    matches = []
+    for item in response.json().get("response", []):
+        league = item["league"]["name"]
+        if league not in INTERESTING_LEAGUES:
+            continue
+        home = item["teams"]["home"]["name"]
+        away = item["teams"]["away"]["name"]
+        match = f"{home} - {away}"
+        tip = random.choice(["Hazai győzelem", "Vendég győzelem", "Mindkét csapat szerez gólt"])
+        matches.append((match, tip))
+    return matches[:3]
 
-    if res.status_code == 200:
-        data = res.json()
-        for fixture in data['response']:
-            home = fixture['teams']['home']['name']
-            away = fixture['teams']['away']['name']
-            fixture_id = fixture['fixture']['id']
+def format_message(tips):
+    tz = pytz.timezone("Europe/Budapest")
+    today = datetime.datetime.now(tz).strftime('%Y.%m.%d')
+    message = f"🔥 Mai Tippmix tippek – {today} 🔥\n"
+    for match, bet in tips:
+        message += f"\n⚽ {match}\n👉 Tipp: {bet}"
+    message += "\n\n📊 Tippmestertől, minden nap 11:00-kor!"
+    return message
 
-            # Fogadási odds lekérés (1X2)
-            odds_url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}&bookmaker=6"
-            odds_res = requests.get(odds_url, headers=headers)
+def send_message(text):
+    bot = Bot(token=BOT_TOKEN)
+    bot.send_message(chat_id=CHAT_ID, text=text)
 
-            if odds_res.status_code == 200:
-                odds_data = odds_res.json()
-                try:
-                    # Kiválasztjuk az 1X2 piacot (ha van)
-                    bets = odds_data['response'][0]['bookmakers'][0]['bets']
-                    for bet in bets:
-                        if bet['name'] == "Match Winner":
-                            values = bet['values']
-                            for v in values:
-                                if v['value'] == "Away" and float(v['odd']) <= 1.80:
-                                    tips.append(f"{home} - {away}: Vendég ({v['odd']})")
-                                elif v['value'] == "Home" and float(v['odd']) <= 1.80:
-                                    tips.append(f"{home} - {away}: Hazai ({v['odd']})")
-                except Exception:
-                    pass  # ha nincs odds adat, kihagyjuk
-
-# Telegram küldés
-if tips:
-    message = f"🎯 **Mai tippek** – {today}\n\n"
-    for t in tips:
-        message += f"• {t}\n"
-
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode=telegram.ParseMode.MARKDOWN)
-else:
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text="⚠️ Ma nem található megfelelő tipp.", parse_mode=telegram.ParseMode.MARKDOWN)
+if __name__ == '__main__':
+    tips = get_today_matches()
+    if tips:
+        msg = format_message(tips)
+        send_message(msg)
