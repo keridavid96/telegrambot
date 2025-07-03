@@ -8,6 +8,7 @@ import asyncio
 from dateutil import parser
 import unidecode
 import difflib
+import random
 
 BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
 CHAT_ID = '-1002892598463'
@@ -77,6 +78,7 @@ def analyze_fixture(fixture, eredmenyek_matches):
     match = best_match
 
     odds = match['odds']
+    # Tipp: API alapján bármilyen extra statisztikát ide lehet írni!
     if float(odds['home']) >= 2.0:
         bet = "Hazai győzelem"
         odd = odds['home']
@@ -105,6 +107,15 @@ def get_today_tips(max_tips=3):
             tips.append(tipp)
             if len(tips) == max_tips:
                 break
+    # Fallback: ha nincs API+eredmenyek.com páros, legyen random tipp a scrape listából!
+    if not tips and len(eredmenyek_matches) > 0:
+        chosen = random.sample(eredmenyek_matches, min(max_tips, len(eredmenyek_matches)))
+        for match in chosen:
+            odds = match['odds']
+            best_key = max(odds, key=lambda k: float(odds[k]))
+            bet = {"home": "Hazai győzelem", "away": "Vendég győzelem", "draw": "Döntetlen"}[best_key]
+            odd = odds[best_key]
+            tips.append((match['home'], match['away'], bet, odd, "ismeretlen liga", match['start_time']))
     return tips
 
 def format_message(tips):
