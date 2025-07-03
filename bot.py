@@ -7,6 +7,7 @@ from telegram.constants import ParseMode
 import asyncio
 from dateutil import parser
 import unidecode
+import difflib
 
 BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
 CHAT_ID = '-1002892598463'
@@ -47,10 +48,10 @@ def get_eredmenyek_matches():
                 continue
     return matches
 
-def simple_match(a, b):
+def fuzzy_match(a, b):
     a_ = unidecode.unidecode(a.lower())
     b_ = unidecode.unidecode(b.lower())
-    return a_ in b_ or b_ in a_
+    return difflib.SequenceMatcher(None, a_, b_).ratio()
 
 def analyze_fixture(fixture, eredmenyek_matches):
     home = fixture["teams"]["home"]["name"]
@@ -60,20 +61,22 @@ def analyze_fixture(fixture, eredmenyek_matches):
     start_dt = parser.isoparse(start_utc).astimezone(tz)
     start_time_str = start_dt.replace(second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M')
 
-    # Párosítás: ékezet-levétel, lower, ±1 óra tolerancia
-    match = None
+    best_score = 0
+    best_match = None
     for m in eredmenyek_matches:
-        if simple_match(home, m['home']) and simple_match(away, m['away']):
-            scraped_time = datetime.datetime.strptime(m['start_time'], '%Y-%m-%dT%H:%M')
-            delta = abs((start_dt - scraped_time).total_seconds())
-            if delta < 3600:
-                match = m
-                break
-    if not match:
+        home_score = fuzzy_match(home, m['home'])
+        away_score = fuzzy_match(away, m['away'])
+        scraped_time = datetime.datetime.strptime(m['start_time'], '%Y-%m-%dT%H:%M')
+        delta = abs((start_dt - scraped_time).total_seconds())
+        score = (home_score + away_score) / 2 - (delta / 7200)  # 2 óra eltérésig
+        if score > best_score and home_score > 0.5 and away_score > 0.5 and delta < 7200:
+            best_score = score
+            best_match = m
+    if not best_match:
         return None
+    match = best_match
 
     odds = match['odds']
-    # TIPP: mindig legyen! Ha van >=2.0 hazai/vendég, akkor azt, egyébként a legnagyobb oddsal
     if float(odds['home']) >= 2.0:
         bet = "Hazai győzelem"
         odd = odds['home']
