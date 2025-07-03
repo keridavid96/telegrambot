@@ -64,10 +64,7 @@ def analyze_fixture(fixture):
         except Exception:
             pass
 
-    if odds_value != "n.a.":
-        return (home, away, bet, odds_value, league_name)
-    else:
-        return None
+    return (home, away, bet, odds_value, league_name)
 
 def get_today_tips(max_tips=3):
     tz = pytz.timezone("Europe/Budapest")
@@ -89,7 +86,10 @@ def format_message(tips):
     today = datetime.datetime.now(tz).strftime('%Y.%m.%d')
     message = f"🔥 Mai Tippmix tippek – {today} 🔥\n"
     for home, away, bet, odd, league in tips:
-        message += f"\n⚽️ {home} - {away} ({league})\n👉 Tipp: {bet} | Szorzó: {odd}"
+        if odd == "n.a.":
+            message += f"\n⚽️ {home} - {away} ({league})\n👉 Tipp: {bet}"
+        else:
+            message += f"\n⚽️ {home} - {away} ({league})\n👉 Tipp: {bet} | Szorzó: {odd}"
     message += "\n\n📊 Tippmestertől, minden nap 11:00-kor!"
     return message
 
