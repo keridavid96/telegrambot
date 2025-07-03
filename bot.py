@@ -12,7 +12,6 @@ API_KEY = 'ce7d900780d35895f214463b4ce49a49'
 HEADERS = {'x-apisports-key': API_KEY}
 
 def recent_results(team_id, n=5):
-    # Lekéri az utolsó n meccset, visszaadja a nyeréseket/gólokat
     url = f'https://v3.football.api-sports.io/fixtures?team={team_id}&last={n}'
     res = requests.get(url, headers=HEADERS)
     if res.status_code != 200: return []
@@ -33,17 +32,17 @@ def analyze_fixture(fixture):
         return None  # túl kevés adat
 
     # Hazai győzelem analízis
-    home_wins = sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] > f["goals"]["away"])
-    away_losses = sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["away"] < f["goals"]["home"])
+    home_wins = sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > f["goals"]["away"])
+    away_losses = sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["away"] < f["goals"]["home"])
     if home_wins >= 3 and away_losses >= 3:
         bet, odds_key, market = "Hazai győzelem", "Home", "Match Winner"
     # Vendég győzelem analízis
-    elif sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["away"] > f["goals"]["home"]) >= 3 and \
-         sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] < f["goals"]["away"]) >= 3:
+    elif sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["away"] > f["goals"]["home"]) >= 3 and \
+         sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] < f["goals"]["away"]) >= 3:
         bet, odds_key, market = "Vendég győzelem", "Away", "Match Winner"
     # Mindkét csapat gól elemzés
-    elif sum(1 for f in home_results if f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3 and \
-         sum(1 for f in away_results if f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3:
+    elif sum(1 for f in home_results if f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3 and \
+         sum(1 for f in away_results if f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3:
         bet, odds_key, market = "Mindkét csapat szerez gólt", "Yes", "Both Teams To Score"
     else:
         return None  # Nincs elég minta, vagy nincs erős trend
