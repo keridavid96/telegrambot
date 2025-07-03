@@ -1,9 +1,10 @@
-
 import requests
 import datetime
 import random
 import pytz
 from telegram import Bot
+from telegram.constants import ParseMode
+import asyncio
 
 # --- CONFIG --- #
 BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
@@ -48,12 +49,15 @@ def format_message(tips):
     message += "\n\n📊 Tippmestertől, minden nap 11:00-kor!"
     return message
 
-def send_message(text):
+async def send_message(text):
     bot = Bot(token=BOT_TOKEN)
-    bot.send_message(chat_id=CHAT_ID, text=text)
+    await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=ParseMode.MARKDOWN)
 
-if __name__ == '__main__':
+async def main():
     tips = get_today_matches()
     if tips:
         msg = format_message(tips)
-        send_message(msg)
+        await send_message(msg)
+
+if __name__ == '__main__':
+    asyncio.run(main())
