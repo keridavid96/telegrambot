@@ -4,3 +4,4 @@ python-telegram-bot==20.7
 python-dateutil
 beautifulsoup4
 unidecode
+diffilib
