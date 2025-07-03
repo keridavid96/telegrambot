@@ -15,11 +15,6 @@ HEADERS = {
     'x-apisports-key': API_KEY
 }
 
-INTERESTING_LEAGUES = [
-    "Allsvenskan", "Superettan", "Premier Division", "First Division", 
-    "Veikkausliiga", "Eliteserien", "OBOS-ligaen", "Ykkosliiga"
-]
-
 def get_today_matches():
     tz = pytz.timezone("Europe/Budapest")
     today = datetime.datetime.now(tz).strftime("%Y-%m-%d")
@@ -30,9 +25,7 @@ def get_today_matches():
 
     matches = []
     for item in response.json().get("response", []):
-        league = item["league"]["name"]
-        if league not in INTERESTING_LEAGUES:
-            continue
+        # Szűrés KIKOMMENTELVE: minden ligából jöhetnek meccsek!
         home = item["teams"]["home"]["name"]
         away = item["teams"]["away"]["name"]
         match = f"{home} - {away}"
