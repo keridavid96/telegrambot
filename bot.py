@@ -17,7 +17,7 @@ HEADERS = {
 
 INTERESTING_LEAGUES = [
     "Allsvenskan", "Superettan", "Premier Division", "First Division", 
-    "Veikkausliiga", "Eliteserien", "OBOS-ligaen"
+    "Veikkausliiga", "Eliteserien", "OBOS-ligaen", "Ykkosliiga"
 ]
 
 def get_today_matches():
