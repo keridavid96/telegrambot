@@ -4,6 +4,7 @@ import pytz
 from telegram import Bot
 from telegram.constants import ParseMode
 import asyncio
+from dateutil import parser
 
 BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
 CHAT_ID = '-1002892598463'
@@ -24,30 +25,27 @@ def analyze_fixture(fixture):
     away_id = fixture["teams"]["away"]["id"]
     fixture_id = fixture["fixture"]["id"]
     league_name = fixture["league"]["name"]
+    start_utc = fixture["fixture"]["date"]
 
     # Adatokat kérünk a csapatokról
     home_results = recent_results(home_id)
     away_results = recent_results(away_id)
     if len(home_results) < 3 or len(away_results) < 3:
-        return None  # túl kevés adat
+        return None
 
-    # Hazai győzelem analízis
     home_wins = sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > f["goals"]["away"])
     away_losses = sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["away"] < f["goals"]["home"])
     if home_wins >= 3 and away_losses >= 3:
         bet, odds_key, market = "Hazai győzelem", "Home", "Match Winner"
-    # Vendég győzelem analízis
     elif sum(1 for f in away_results if f["teams"]["away"]["id"] == away_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["away"] > f["goals"]["home"]) >= 3 and \
          sum(1 for f in home_results if f["teams"]["home"]["id"] == home_id and f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] < f["goals"]["away"]) >= 3:
         bet, odds_key, market = "Vendég győzelem", "Away", "Match Winner"
-    # Mindkét csapat gól elemzés
     elif sum(1 for f in home_results if f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3 and \
          sum(1 for f in away_results if f["goals"]["home"] is not None and f["goals"]["away"] is not None and f["goals"]["home"] > 0 and f["goals"]["away"] > 0) >= 3:
         bet, odds_key, market = "Mindkét csapat szerez gólt", "Yes", "Both Teams To Score"
     else:
-        return None  # Nincs elég minta, vagy nincs erős trend
+        return None
 
-    # Odds lekérdezés
     odds_url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}"
     odds_res = requests.get(odds_url, headers=HEADERS)
     odds_value = "n.a."
@@ -64,7 +62,7 @@ def analyze_fixture(fixture):
         except Exception:
             pass
 
-    return (home, away, bet, odds_value, league_name)
+    return (home, away, bet, odds_value, league_name, start_utc)
 
 def get_today_tips(max_tips=3):
     tz = pytz.timezone("Europe/Budapest")
@@ -85,11 +83,13 @@ def format_message(tips):
     tz = pytz.timezone("Europe/Budapest")
     today = datetime.datetime.now(tz).strftime('%Y.%m.%d')
     message = f"🔥 Mai Tippmix tippek – {today} 🔥\n"
-    for home, away, bet, odd, league in tips:
+    for home, away, bet, odd, league, start_utc in tips:
+        dt = parser.isoparse(start_utc).astimezone(tz)
+        start_time = dt.strftime('%H:%M')
         if odd == "n.a.":
-            message += f"\n⚽️ {home} - {away} ({league})\n👉 Tipp: {bet}"
+            message += f"\n⚽️ {home} - {away} ({league})\n🕒 Kezdés: {start_time}\n👉 Tipp: {bet}"
         else:
-            message += f"\n⚽️ {home} - {away} ({league})\n👉 Tipp: {bet} | Szorzó: {odd}"
+            message += f"\n⚽️ {home} - {away} ({league})\n🕒 Kezdés: {start_time}\n👉 Tipp: {bet} | Szorzó: {odd}"
     message += "\n\n📊 Tippmestertől, minden nap 11:00-kor!"
     return message
 
