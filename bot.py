@@ -64,7 +64,10 @@ def analyze_fixture(fixture):
         except Exception:
             pass
 
-    return (home, away, bet, odds_value, league_name)
+    if odds_value != "n.a.":
+        return (home, away, bet, odds_value, league_name)
+    else:
+        return None
 
 def get_today_tips(max_tips=3):
     tz = pytz.timezone("Europe/Budapest")
