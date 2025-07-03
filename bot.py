@@ -6,10 +6,11 @@ from telegram import Bot
 from telegram.constants import ParseMode
 import asyncio
 from dateutil import parser
+import unidecode
 
 BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
-CHAT_ID = '6908414952'
-API_KEY = '402484016678a5bc1ccb125d96319634'
+CHAT_ID = '-1002892598463'
+API_KEY = 'ce7d900780d35895f214463b4ce49a49'
 
 HEADERS = {'x-apisports-key': API_KEY}
 
@@ -24,12 +25,10 @@ def get_eredmenyek_matches():
                 home = row.select_one('.event__participant--home').text.strip()
                 away = row.select_one('.event__participant--away').text.strip()
                 start_time = row.select_one('.event__time').text.strip()
-                # Mostani nap, vagy ha éjfél utánra esik, akkor másnap!
                 today = datetime.datetime.now()
                 match_dt = datetime.datetime.strptime(f"{today.year}.{today.month}.{today.day} {start_time}", "%Y.%m.%d %H:%M")
                 if match_dt < today - datetime.timedelta(hours=6):
                     match_dt += datetime.timedelta(days=1)
-                # 1X2 szorzók
                 odds_1 = row.select_one('.event__odd--1')
                 odds_x = row.select_one('.event__odd--x')
                 odds_2 = row.select_one('.event__odd--2')
@@ -48,6 +47,11 @@ def get_eredmenyek_matches():
                 continue
     return matches
 
+def simple_match(a, b):
+    a_ = unidecode.unidecode(a.lower())
+    b_ = unidecode.unidecode(b.lower())
+    return a_ in b_ or b_ in a_
+
 def analyze_fixture(fixture, eredmenyek_matches):
     home = fixture["teams"]["home"]["name"]
     away = fixture["teams"]["away"]["name"]
@@ -56,21 +60,20 @@ def analyze_fixture(fixture, eredmenyek_matches):
     start_dt = parser.isoparse(start_utc).astimezone(tz)
     start_time_str = start_dt.replace(second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M')
 
-    # Párosítás (név/idő rugalmas egyezés)
+    # Párosítás: ékezet-levétel, lower, ±1 óra tolerancia
     match = None
     for m in eredmenyek_matches:
-        if (home.lower() in m['home'].lower() or m['home'].lower() in home.lower()) and \
-           (away.lower() in m['away'].lower() or m['away'].lower() in away.lower()):
+        if simple_match(home, m['home']) and simple_match(away, m['away']):
             scraped_time = datetime.datetime.strptime(m['start_time'], '%Y-%m-%dT%H:%M')
             delta = abs((start_dt - scraped_time).total_seconds())
-            if delta < 1800:
+            if delta < 3600:
                 match = m
                 break
     if not match:
         return None
 
     odds = match['odds']
-    # Egyszerű logika: ha hazai odds >=2, azt tippeli, különben vendég, különben döntetlen
+    # TIPP: mindig legyen! Ha van >=2.0 hazai/vendég, akkor azt, egyébként a legnagyobb oddsal
     if float(odds['home']) >= 2.0:
         bet = "Hazai győzelem"
         odd = odds['home']
@@ -78,8 +81,9 @@ def analyze_fixture(fixture, eredmenyek_matches):
         bet = "Vendég győzelem"
         odd = odds['away']
     else:
-        bet = "Döntetlen"
-        odd = odds['draw']
+        best_key = max(odds, key=lambda k: float(odds[k]))
+        bet = {"home": "Hazai győzelem", "away": "Vendég győzelem", "draw": "Döntetlen"}[best_key]
+        odd = odds[best_key]
 
     league_name = fixture["league"]["name"]
     return (home, away, bet, odd, league_name, start_time_str)
