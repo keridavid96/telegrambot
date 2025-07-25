@@ -8,9 +8,9 @@ from telegram import Bot
 from telegram.constants import ParseMode
 
 # Állítsd be az adataid!
-BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
-CHAT_ID = '-1002892598463'
-API_KEY = 'ce7d900780d35895f214463b4ce49a49'
+BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
+CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'
+API_KEY = 'YOUR_FOOTBALL_API_KEY'
 
 HEADERS = {'x-apisports-key': API_KEY}
 
@@ -101,6 +101,7 @@ def get_odds(fixture_id):
             return None
     return None
 
+# LAZÁBB, több biztos tippet adó kategorizáló!
 def tipp_kategoria(home_stats, away_stats, odds, bettype, odd):
     kategoria = "Kockázatos tipp"
     indok = []
@@ -132,10 +133,6 @@ def tipp_kategoria(home_stats, away_stats, odds, bettype, odd):
     except:
         pass
 
-    return kategoria, ", ".join(indok) if indok else None
-
-    except:
-        pass
     return kategoria, ", ".join(indok) if indok else None
 
 def analyze_fixture(fx):
@@ -245,7 +242,6 @@ def select_best_tips(n=6, eredmeny_max=3, spec_max=3):
         if len(eredmeny_tippek) + len(spec_tippek) >= n:
             break
 
-    # Pótlás: ha nincs elég speciális, töltse fel eredmény tippekkel, vagy fordítva
     while len(eredmeny_tippek) + len(spec_tippek) < n and extra_tippek:
         t = extra_tippek.pop(0)
         if t['bet'] in ["Hazai győzelem", "Vendég győzelem", "Döntetlen"]:
@@ -253,11 +249,9 @@ def select_best_tips(n=6, eredmeny_max=3, spec_max=3):
         else:
             spec_tippek.append(t)
 
-    # Végső lista pontosan 6 tippel
     final_tippek = eredmeny_tippek + spec_tippek
     final_tippek = final_tippek[:n]
 
-    # Napló statisztikához
     with open(TIPPEK_NAPLO, 'w', encoding='utf8') as f:
         json.dump(final_tippek, f, ensure_ascii=False, indent=2)
 
