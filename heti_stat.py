@@ -3,8 +3,9 @@ import datetime
 from telegram import Bot
 from telegram.constants import ParseMode
 
-BOT_TOKEN = 'YOUR_TELEGRAM_BOT_TOKEN'
-CHAT_ID = 'YOUR_TELEGRAM_CHAT_ID'
+BOT_TOKEN = '8056404497:AAHyVaYlus7U-kL1llG86u-H0huCvHGF6Gk'
+CHAT_ID = '-1002892598463'
+API_KEY = 'ce7d900780d35895f214463b4ce49a49'
 
 HETI_FILE = "heti_tippek.json"
 
