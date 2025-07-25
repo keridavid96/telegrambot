@@ -104,28 +104,36 @@ def get_odds(fixture_id):
 def tipp_kategoria(home_stats, away_stats, odds, bettype, odd):
     kategoria = "Kockázatos tipp"
     indok = []
+
     try:
-        if bettype == "Hazai győzelem":
-            if home_stats['forma'] >= 3 and home_stats['helyezes'] < away_stats['helyezes'] and float(odd) < 2.1:
-                kategoria = "Biztos tipp"
-                indok.append("Jó forma, előkelő tabellahely")
-            elif float(odd) > 2.4:
-                indok.append("Magas szorzó")
-        elif bettype == "Vendég győzelem":
-            if away_stats['forma'] >= 3 and away_stats['helyezes'] < home_stats['helyezes'] and float(odd) < 2.1:
-                kategoria = "Biztos tipp"
-                indok.append("Jó forma, vendég előny a tabellán")
-            elif float(odd) > 2.4:
+        # -- Eredmény tippek
+        if bettype in ["Hazai győzelem", "Vendég győzelem"]:
+            # Lazább: legalább 2 forma, helyezés különbség, odds max 2.30
+            if ((bettype == "Hazai győzelem" and home_stats['forma'] >= 2 and home_stats['helyezes'] < away_stats['helyezes'])
+                or (bettype == "Vendég győzelem" and away_stats['forma'] >= 2 and away_stats['helyezes'] < home_stats['helyezes'])):
+                if float(odd) < 2.30:
+                    kategoria = "Biztos tipp"
+                    indok.append("Elfogadható forma és tabellahely, kedvező szorzó")
+            if float(odd) > 2.4:
                 indok.append("Magas szorzó")
         elif bettype == "Döntetlen":
-            if float(odd) > 3.0:
+            if float(odd) < 3.5:
+                kategoria = "Biztos tipp"
+                indok.append("Alacsonyabb döntetlen szorzó")
+            else:
                 indok.append("Nagyon magas szorzó")
         else:
-            if float(odd) < 1.80:
+            # -- Speciális: GG, Over/Under
+            if float(odd) < 1.90:
                 kategoria = "Biztos tipp"
-                indok.append("Stabil statisztika, alacsony odds")
+                indok.append("Stabil statisztika, kedvező odds")
             elif float(odd) > 2.25:
                 indok.append("Magas szorzó")
+    except:
+        pass
+
+    return kategoria, ", ".join(indok) if indok else None
+
     except:
         pass
     return kategoria, ", ".join(indok) if indok else None
