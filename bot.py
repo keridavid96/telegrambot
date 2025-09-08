@@ -41,12 +41,12 @@ TOP_LEAGUE_IDS = [
     179,  # Premiership (Skócia)
     203,  # Süper Lig (Törökország)
 
-    # Kupák / nemzetközi
+    # Nemzetközi kupák
     2,    # UEFA Champions League
     3,    # UEFA Europa League
     848,  # UEFA Europa Conference League
 
-    # Válogatott
+    # Válogatott tornák
     1,    # FIFA World Cup
     4,    # UEFA Euro Championship
     5     # UEFA Nations League
@@ -92,6 +92,7 @@ def get_today_fixtures():
         resp = requests.get(url, headers=HEADERS)
         if resp.status_code == 200:
             fixtures += resp.json().get('response', [])
+    print(f"[Fixtures] Ma betöltve: {len(fixtures)} mérkőzés a kijelölt ligákból.")
     return fixtures
 
 def get_form(team_id):
@@ -119,43 +120,78 @@ def get_h2h(home_id, away_id):
     return res.json().get('response', [])
 
 def get_odds(fixture_id):
+    """
+    Több bukmékert végigjárunk és a számunkra kedvezőbb értéket tartjuk meg.
+    - 1X2, BTTS (GG), Over/Under 2.5 (OU)
+    - Double Chance (DC: 1X/X2/12), Draw No Bet (DNB: home/away)
+    """
     url = f"https://v3.football.api-sports.io/odds?fixture={fixture_id}"
     res = requests.get(url, headers=HEADERS)
-    if res.status_code == 200 and res.json().get('response'):
-        try:
-            bookmakers = res.json()['response'][0]['bookmakers']
-            if not bookmakers:
-                return None
-            odds = {'1X2': {}, 'GG': {}, 'OU': {}}
-            for bet in bookmakers[0]['bets']:
-                name = bet.get('name')
+    if res.status_code != 200 or not res.json().get('response'):
+        return None
+    try:
+        odds = {'1X2': {}, 'GG': {}, 'OU': {}, 'DC': {}, 'DNB': {}}
+
+        def keep(d, k, v, pick='min'):
+            try:
+                nv = float(v)
+            except:
+                return
+            if k not in d:
+                d[k] = v
+            else:
+                try:
+                    cv = float(d[k])
+                    if (pick == 'min' and nv < cv) or (pick == 'max' and nv > cv):
+                        d[k] = v
+                except:
+                    d[k] = v
+
+        for bk in res.json()['response'][0].get('bookmakers', []):
+            for bet in bk.get('bets', []):
+                name = bet.get('name', '')
+                vals = bet.get('values', [])
+
                 # 1X2
                 if name in ['Match Winner', '1X2', 'Win/Draw/Lose']:
-                    for v in bet['values']:
-                        if v['value'] in ['Home', '1']:
-                            odds['1X2']['home'] = v['odd']
-                        elif v['value'] in ['Away', '2']:
-                            odds['1X2']['away'] = v['odd']
-                        elif v['value'] in ['Draw', 'X']:
-                            odds['1X2']['draw'] = v['odd']
-                # BTTS
-                if name == 'Both Teams to Score':
-                    for v in bet['values']:
-                        if v['value'] == 'Yes':
-                            odds['GG']['yes'] = v['odd']
-                        elif v['value'] == 'No':
-                            odds['GG']['no'] = v['odd']
+                    for v in vals:
+                        val = v.get('value'); odd = v.get('odd')
+                        if val in ['Home', '1']: keep(odds['1X2'], 'home', odd, 'max')
+                        elif val in ['Away', '2']: keep(odds['1X2'], 'away', odd, 'max')
+                        elif val in ['Draw', 'X']: keep(odds['1X2'], 'draw', odd, 'max')
+
+                # BTTS (Both Teams to Score)
+                elif name == 'Both Teams to Score':
+                    for v in vals:
+                        if v.get('value') == 'Yes': keep(odds['GG'], 'yes', v.get('odd'), 'max')
+                        elif v.get('value') == 'No': keep(odds['GG'], 'no', v.get('odd'), 'max')
+
                 # Over/Under 2.5
-                if name == 'Over/Under 2.5':
-                    for v in bet['values']:
-                        if v['value'] == 'Over 2.5':
-                            odds['OU']['over'] = v['odd']
-                        elif v['value'] == 'Under 2.5':
-                            odds['OU']['under'] = v['odd']
-            return odds
-        except Exception:
-            return None
-    return None
+                elif name == 'Over/Under 2.5':
+                    for v in vals:
+                        if v.get('value') == 'Over 2.5': keep(odds['OU'], 'over', v.get('odd'), 'max')
+                        elif v.get('value') == 'Under 2.5': keep(odds['OU'], 'under', v.get('odd'), 'max')
+
+                # Double Chance
+                elif name in ['Double Chance', 'Double chance']:
+                    for v in vals:
+                        m = v.get('value')  # '1X','12','X2'
+                        if m in ['1X', '12', 'X2']:
+                            keep(odds['DC'], m, v.get('odd'), 'min')  # duplázónál a kisebb odd a jobb "biztos" láb
+
+                # Draw No Bet (DNB)
+                elif name in ['Draw No Bet', 'DNB']:
+                    for v in vals:
+                        m = v.get('value')
+                        if m in ['Home', '1']:
+                            keep(odds['DNB'], 'home', v.get('odd'), 'min')
+                        elif m in ['Away', '2']:
+                            keep(odds['DNB'], 'away', v.get('odd'), 'min')
+
+        return odds
+    except Exception as e:
+        print(f"[ODDS] Hiba feldolgozás közben: {e}")
+        return None
 
 # =======================
 # Kategorizálás
@@ -164,42 +200,43 @@ def get_odds(fixture_id):
 def tipp_kategoria(home_stats, away_stats, bettype, odd_str):
     """
     Lazább, több 'Biztos tipp'-et eredményező kategorizálás.
+    DC/DNB piacokra is jól működik (alacsonyabb odd általában).
     """
     kategoria = "Kockázatos tipp"
     indok = []
     try:
         odd = float(odd_str)
+
+        # Eredmény piacok
         if bettype in ["Hazai győzelem", "Vendég győzelem"]:
-            # Legalább 2 győzelem a legutóbbi 5-ből + jobb tabella + 2.30 alatti odds -> Biztos
             if bettype == "Hazai győzelem":
                 if home_stats['forma'] >= 2 and home_stats['helyezes'] < away_stats['helyezes'] and odd < 2.30:
-                    kategoria = "Biztos tipp"
-                    indok.append("Forma + tabellaelőny + kedvező odds")
+                    kategoria = "Biztos tipp"; indok.append("Forma + tabellaelőny + kedvező odds")
             else:
                 if away_stats['forma'] >= 2 and away_stats['helyezes'] < home_stats['helyezes'] and odd < 2.30:
-                    kategoria = "Biztos tipp"
-                    indok.append("Forma + tabellaelőny + kedvező odds")
+                    kategoria = "Biztos tipp"; indok.append("Forma + tabellaelőny + kedvező odds")
             if odd >= 2.40:
                 indok.append("Magas szorzó")
+
         elif bettype == "Döntetlen":
             if odd < 3.50:
-                kategoria = "Biztos tipp"
-                indok.append("Relatíve alacsony döntetlen szorzó")
+                kategoria = "Biztos tipp"; indok.append("Relatíve alacsony döntetlen szorzó")
             else:
                 indok.append("Nagyon magas szorzó")
+
+        # Speciális piacok: GG/OU/DC/DNB
         else:
-            # Speciális piacok
             if odd < 1.90:
-                kategoria = "Biztos tipp"
-                indok.append("Stabil statisztika, kedvező odds")
+                kategoria = "Biztos tipp"; indok.append("Stabil statisztika, kedvező odds")
             elif odd > 2.25:
                 indok.append("Magas szorzó")
+
     except:
         pass
     return kategoria, (", ".join(indok) if indok else None)
 
 # =======================
-# Elemzés egy mérkőzésre (javasolt tippek listája)
+# Elemzés egy mérkőzésre (javasolt tippek)
 # =======================
 
 def analyze_fixture(fx):
@@ -243,8 +280,7 @@ def analyze_fixture(fx):
     tips = []
 
     # 1X2
-    if all(k in odds['1X2'] for k in ('home', 'away', 'draw')):
-        # favorit logika
+    if '1X2' in odds and all(k in odds['1X2'] for k in ('home', 'away', 'draw')):
         if (home_win > away_win and home_pos < away_pos):
             bet, odd = "Hazai győzelem", odds['1X2']['home']
         elif (away_win > home_win and away_pos < home_pos):
@@ -261,7 +297,7 @@ def analyze_fixture(fx):
         })
 
     # BTTS (GG)
-    if 'yes' in odds['GG']:
+    if 'GG' in odds and 'yes' in odds['GG']:
         bet, odd = "Mindkét csapat szerez gólt", odds['GG']['yes']
         kat, indok = tipp_kategoria(home_stats, away_stats, bet, odd)
         tips.append({
@@ -273,7 +309,7 @@ def analyze_fixture(fx):
         })
 
     # Over/Under 2.5
-    if 'over' in odds['OU']:
+    if 'OU' in odds and 'over' in odds['OU']:
         bet, odd = "Több mint 2.5 gól", odds['OU']['over']
         kat, indok = tipp_kategoria(home_stats, away_stats, bet, odd)
         tips.append({
@@ -283,7 +319,7 @@ def analyze_fixture(fx):
             'start_time': start_time,
             'bet': bet, 'odd': odd, 'kat': kat, 'indok': indok
         })
-    if 'under' in odds['OU']:
+    if 'OU' in odds and 'under' in odds['OU']:
         bet, odd = "Kevesebb mint 2.5 gól", odds['OU']['under']
         kat, indok = tipp_kategoria(home_stats, away_stats, bet, odd)
         tips.append({
@@ -293,6 +329,36 @@ def analyze_fixture(fx):
             'start_time': start_time,
             'bet': bet, 'odd': odd, 'kat': kat, 'indok': indok
         })
+
+    # Double Chance (1X/X2/12)
+    if 'DC' in odds and odds['DC']:
+        for key, label in [('1X', 'Dupla esély 1X'),
+                           ('X2', 'Dupla esély X2'),
+                           ('12', 'Dupla esély 12')]:
+            if key in odds['DC']:
+                bet, odd = label, odds['DC'][key]
+                kat, indok = tipp_kategoria(home_stats, away_stats, bet, odd)
+                tips.append({
+                    'fixture_id': fixture_id,
+                    'home': home, 'away': away,
+                    'league': league, 'country': country,
+                    'start_time': start_time,
+                    'bet': bet, 'odd': odd, 'kat': kat, 'indok': indok
+                })
+
+    # Draw No Bet (DNB)
+    if 'DNB' in odds and odds['DNB']:
+        for key, label in [('home', 'Hazai DNB'), ('away', 'Vendég DNB')]:
+            if key in odds['DNB']:
+                bet, odd = label, odds['DNB'][key]
+                kat, indok = tipp_kategoria(home_stats, away_stats, bet, odd)
+                tips.append({
+                    'fixture_id': fixture_id,
+                    'home': home, 'away': away,
+                    'league': league, 'country': country,
+                    'start_time': start_time,
+                    'bet': bet, 'odd': odd, 'kat': kat, 'indok': indok
+                })
 
     return tips
 
@@ -307,7 +373,6 @@ def build_safe_acca(all_tips):
       - össz-odds 2.00–3.00 között
       - előnyben a 'Biztos tipp', majd ha kevés, alacsony odd-ú 'Kockázatos tipp'
     """
-    # 1) Kandidátusok gyűjtése
     cands = []
     for t in all_tips:
         try:
@@ -315,17 +380,17 @@ def build_safe_acca(all_tips):
         except:
             continue
         if o <= SAFE_SINGLE_MAX:
-            # preferencia: Biztos tipp (0), majd Kockázatos (1)
             weight = 0 if t.get('kat') == "Biztos tipp" else 1
-            score = (weight, abs(SAFE_SINGLE_PREF - o))  # minél közelebb a preferált 1.55-höz
+            score = (weight, abs(SAFE_SINGLE_PREF - o))
             cands.append((score, t))
 
     if not cands:
+        print("[Duplázó] Nincs jelölt láb (≤1.65).")
         return []
 
-    # Rendezés preferencia szerint
     cands.sort(key=lambda x: x[0])
-    picks = [t for _, t in cands][:12]  # shortlist
+    picks = [t for _, t in cands][:30]
+    print(f"[Duplázó] jelöltek (≤{SAFE_SINGLE_MAX}): {len(picks)}")
 
     def prod_odds(arr):
         p = 1.0
@@ -336,7 +401,7 @@ def build_safe_acca(all_tips):
                 return 0.0
         return p
 
-    # 2) Keressünk 2-es kombót a sávban
+    # 2-es kombó
     best = None
     for i in range(len(picks)):
         for j in range(i+1, len(picks)):
@@ -348,7 +413,7 @@ def build_safe_acca(all_tips):
         if best:
             break
 
-    # 3) Ha nincs 2-es, próbáljunk 3-ast
+    # 3-as kombó
     if not best:
         for i in range(len(picks)):
             for j in range(i+1, len(picks)):
@@ -363,7 +428,7 @@ def build_safe_acca(all_tips):
             if best:
                 break
 
-    # 4) Ha nincs pontos találat, válasszunk a legközelebb esőt
+    # legközelebbi
     if not best:
         target_mid = (TARGET_MIN_ODDS + TARGET_MAX_ODDS) / 2.0
         best_combo = None
@@ -422,7 +487,9 @@ def build_risky_singles(all_tips, count=3):
             except:
                 continue
     risky.sort(key=lambda x: x[0], reverse=True)
-    return [t for _, t in risky[:count]]
+    picked = [t for _, t in risky[:count]]
+    print(f"[Risky] kiválasztva: {len(picked)}")
+    return picked
 
 # =======================
 # Napi kiválasztás + naplózás
@@ -435,8 +502,11 @@ def select_daily_bundles():
         try:
             tips = analyze_fixture(fx)
             all_tips.extend(tips)
-        except Exception:
+        except Exception as e:
+            print(f"[Analyze] Hiba egy fixture-nél: {e}")
             continue
+
+    print(f"[Tips] Összes javaslat: {len(all_tips)}")
 
     # Duplázó (≤1.65, össz 2–3)
     safe_acca = build_safe_acca(all_tips)
@@ -482,11 +552,11 @@ def format_message(safe_acca, risky_singles):
             msg += "\n"
         msg += f"\n🧮 Össz-szorzó: *{prod_odds(safe_acca):.2f}*\n"
     else:
-        msg += "\n✅ *Duplázó szelvény*: ma nem találtunk megfelelő biztonságú kombinációt.\n"
+        msg += "\n✅ Duplázó szelvény: ma nem találtunk megfelelő biztonságú kombinációt.\n"
 
     # Kockázatos egyesek blokk
     if risky_singles:
-        msg += "\n⚡ *Kockázatos egyes tippek* (külön-külön téttel)\n"
+        msg += "\n⚡️ *Kockázatos egyes tippek* (külön-külön téttel)\n"
         for t in risky_singles:
             msg += f"\n⚽️ {t['home']} - {t['away']} ({t['league']}, {t['country']})"
             msg += f"\n🕒 Kezdés: {t['start_time']}"
@@ -495,7 +565,7 @@ def format_message(safe_acca, risky_singles):
             if t['indok']: msg += f" ({t['indok']})"
             msg += "\n"
     else:
-        msg += "\n⚡ *Kockázatos egyes tippek*: ma nem találtunk jó értékű lehetőséget.\n"
+        msg += "\n⚡️ Kockázatos egyes tippek: ma nem találtunk jó értékű lehetőséget.\n"
 
     msg += "\nℹ️ Duplázó szabály: minden egyes tipp ≤ 1.65 szorzó, az össz-szorzó 2.00–3.00 között.\n"
     msg += "📊 Tippmestertől, minden nap 11:00-kor!"
