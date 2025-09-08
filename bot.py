@@ -17,8 +17,39 @@ TIPPEK_NAPLO = 'tippek_naplo.json'
 
 # Topligák + európai kupák (jó eséllyel Tippmixpro-n is vannak)
 TOP_LEAGUE_IDS = [
-    39, 78, 140, 135, 61, 266, 40, 79, 141, 136, 62, 88,
-    94, 144, 203, 179, 218, 207, 106, 197, 2, 3, 848
+    # Top 5 európai bajnokságok
+    39,   # Premier League (Anglia)
+    78,   # Bundesliga (Németország)
+    140,  # La Liga (Spanyolország)
+    135,  # Serie A (Olaszország)
+    61,   # Ligue 1 (Franciaország)
+
+    # Egyéb fontos topligák
+    266,  # NB I (Magyarország)
+    40,   # Championship (Anglia)
+    79,   # 2. Bundesliga
+    141,  # La Liga 2
+    136,  # Serie B
+    62,   # Ligue 2
+    88,   # Eredivisie (Hollandia)
+    94,   # Jupiler Pro League (Belgium)
+    144,  # Super League (Svájc)
+    203,  # Super Lig (Törökország)
+    179,  # Ekstraklasa (Lengyelország)
+    218,  # Fortuna Liga (Csehország)
+    207,  # Bundesliga (Ausztria)
+    106,  # Allsvenskan (Svédország)
+    197,  # Eliteserien (Norvégia)
+
+    # Válogatott tornák
+    1,    # FIFA World Cup
+    4,    # UEFA Euro Championship
+    5,    # UEFA Nations League
+
+    # Nemzetközi kupák
+    2,    # UEFA Champions League
+    3,    # UEFA Europa League
+    848   # UEFA Conference League
 ]
 
 # Duplázó cél intervallum
@@ -422,3 +453,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+
