@@ -17,6 +17,9 @@ API_KEY = 'ce7d900780d35895f214463b4ce49a49'
 HEADERS = {'x-apisports-key': API_KEY}
 TIPPEK_NAPLO = 'tippek_naplo.json'
 
+# Napi poszt időpont (Europe/Budapest)
+POST_HOUR = 10  # 10:00
+
 # Top ligák + kupák + válogatott tornák
 TOP_LEAGUE_IDS = [
     # Top 5
@@ -68,7 +71,12 @@ SAFE_SINGLE_PREF = 1.55
 # API segédek
 # =======================
 
+# cache-eljük a ligaszezonokat a futás idejére
+_SEASON_CACHE = {}
+
 def get_current_season(league_id):
+    if league_id in _SEASON_CACHE:
+        return _SEASON_CACHE[league_id]
     url = f"https://v3.football.api-sports.io/leagues?id={league_id}"
     res = requests.get(url, headers=HEADERS)
     if res.status_code != 200:
@@ -77,8 +85,10 @@ def get_current_season(league_id):
         if l["league"]["id"] == league_id:
             for season in l["seasons"]:
                 if season["current"]:
+                    _SEASON_CACHE[league_id] = season["year"]
                     return season["year"]
     return None
+
 
 def get_today_fixtures():
     tz = pytz.timezone("Europe/Budapest")
@@ -92,8 +102,8 @@ def get_today_fixtures():
         resp = requests.get(url, headers=HEADERS)
         if resp.status_code == 200:
             fixtures += resp.json().get('response', [])
-    print(f"[Fixtures] Ma betöltve: {len(fixtures)} mérkőzés a kijelölt ligákból.")
     return fixtures
+
 
 def get_form(team_id):
     url = f"https://v3.football.api-sports.io/fixtures?team={team_id}&last=5"
@@ -101,6 +111,7 @@ def get_form(team_id):
     if res.status_code != 200:
         return []
     return res.json().get('response', [])
+
 
 def get_standings(league_id, season):
     url = f"https://v3.football.api-sports.io/standings?league={league_id}&season={season}"
@@ -112,12 +123,14 @@ def get_standings(league_id, season):
         return None
     return data[0]["league"]["standings"][0]
 
+
 def get_h2h(home_id, away_id):
     url = f"https://v3.football.api-sports.io/fixtures/headtohead?h2h={home_id}-{away_id}&last=5"
     res = requests.get(url, headers=HEADERS)
     if res.status_code != 200:
         return []
     return res.json().get('response', [])
+
 
 def get_odds(fixture_id):
     """
@@ -385,12 +398,10 @@ def build_safe_acca(all_tips):
             cands.append((score, t))
 
     if not cands:
-        print("[Duplázó] Nincs jelölt láb (≤1.65).")
         return []
 
     cands.sort(key=lambda x: x[0])
     picks = [t for _, t in cands][:30]
-    print(f"[Duplázó] jelöltek (≤{SAFE_SINGLE_MAX}): {len(picks)}")
 
     def prod_odds(arr):
         p = 1.0
@@ -460,35 +471,37 @@ def build_safe_acca(all_tips):
     return best or []
 
 # =======================
-# Kockázatos egyes tippek
+# Single tippek (>=1.50)
 # =======================
 
-def build_risky_singles(all_tips, count=3):
+def build_single_suggestions(all_tips, count=3, min_odds=1.50):
     """
-    Kockázatos egyesek:
-      - preferált: 'Kockázatos tipp'
-      - odd >= 2.30
-      - ha kevés, engedünk 2.10+-t is
+    Single tippek:
+      - odd >= 1.50
+      - előnyben a 'Biztos tipp', majd a jobb odd
+      - különböző meccsekből
     """
-    risky = []
+    scored = []
     for t in all_tips:
         try:
             o = float(t['odd'])
-            if t.get('kat') == "Kockázatos tipp" and o >= 2.30:
-                risky.append((o, t))
+            if o >= min_odds:
+                weight = 0 if t.get('kat') == "Biztos tipp" else 1
+                scored.append(((weight, -o), t))  # nagyobb odd előny, de 'Biztos' fontosabb
         except:
             continue
-    if len(risky) < count:
-        for t in all_tips:
-            try:
-                o = float(t['odd'])
-                if t.get('kat') == "Kockázatos tipp" and o >= 2.10:
-                    risky.append((o, t))
-            except:
-                continue
-    risky.sort(key=lambda x: x[0], reverse=True)
-    picked = [t for _, t in risky[:count]]
-    print(f"[Risky] kiválasztva: {len(picked)}")
+
+    scored.sort(key=lambda x: x[0])
+
+    picked = []
+    used_fixtures = set()
+    for _, t in scored:
+        if t['fixture_id'] in used_fixtures:
+            continue
+        picked.append(t)
+        used_fixtures.add(t['fixture_id'])
+        if len(picked) == count:
+            break
     return picked
 
 # =======================
@@ -503,31 +516,28 @@ def select_daily_bundles():
             tips = analyze_fixture(fx)
             all_tips.extend(tips)
         except Exception as e:
-            print(f"[Analyze] Hiba egy fixture-nél: {e}")
             continue
-
-    print(f"[Tips] Összes javaslat: {len(all_tips)}")
 
     # Duplázó (≤1.65, össz 2–3)
     safe_acca = build_safe_acca(all_tips)
 
-    # Kockázatos egyesek
-    risky_singles = build_risky_singles(all_tips, count=3)
+    # Single tippek 1.50+
+    singles = build_single_suggestions(all_tips, count=3, min_odds=1.50)
 
-    # Napló az esti statnak
+    # Napló az ellenőrzéshez
     to_log = []
-    for t in (safe_acca + risky_singles):
+    for t in (safe_acca + singles):
         to_log.append(t)
     with open(TIPPEK_NAPLO, 'w', encoding='utf8') as f:
         json.dump(to_log, f, ensure_ascii=False, indent=2)
 
-    return safe_acca, risky_singles
+    return safe_acca, singles
 
 # =======================
 # Üzenet
 # =======================
 
-def format_message(safe_acca, risky_singles):
+def format_message(safe_acca, singles):
     today = datetime.datetime.now().strftime('%Y.%m.%d')
     msg = f"🔥 Mai Tippmix ajánlat – {today} 🔥\n"
 
@@ -554,10 +564,10 @@ def format_message(safe_acca, risky_singles):
     else:
         msg += "\n✅ Duplázó szelvény: ma nem találtunk megfelelő biztonságú kombinációt.\n"
 
-    # Kockázatos egyesek blokk
-    if risky_singles:
-        msg += "\n⚡️ *Kockázatos egyes tippek* (külön-külön téttel)\n"
-        for t in risky_singles:
+    # Single tippek blokk (1.50+)
+    if singles:
+        msg += "\n🎟️ *Single tippek* (1.50+ – külön-külön téttel)\n"
+        for t in singles:
             msg += f"\n⚽️ {t['home']} - {t['away']} ({t['league']}, {t['country']})"
             msg += f"\n🕒 Kezdés: {t['start_time']}"
             msg += f"\n👉 Tipp: {t['bet']} | Szorzó: {t['odd']}"
@@ -565,10 +575,10 @@ def format_message(safe_acca, risky_singles):
             if t['indok']: msg += f" ({t['indok']})"
             msg += "\n"
     else:
-        msg += "\n⚡️ Kockázatos egyes tippek: ma nem találtunk jó értékű lehetőséget.\n"
+        msg += "\n🎟️ Single tippek: ma nem találtunk jó értékű lehetőséget.\n"
 
-    msg += "\nℹ️ Duplázó szabály: minden egyes tipp ≤ 1.65 szorzó, az össz-szorzó 2.00–3.00 között.\n"
-    msg += "📊 Tippmestertől, minden nap 11:00-kor!"
+    msg += "\nℹ️ A tippek információs jellegűek. Játssz felelősen!\n"
+    msg += "🕙 Napi post: 10:00 (Europe/Budapest)"
     return msg
 
 # =======================
@@ -580,14 +590,41 @@ async def send_message(text):
     await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=ParseMode.MARKDOWN)
 
 # =======================
+# Ütemezés (10:00)
+# =======================
+
+def seconds_until_hour(hour, tz_name="Europe/Budapest"):
+    tz = pytz.timezone(tz_name)
+    now = datetime.datetime.now(tz)
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    return int((target - now).total_seconds())
+
+async def daily_loop():
+    # első futás: várunk a következő 10:00-ig
+    await asyncio.sleep(seconds_until_hour(POST_HOUR))
+    while True:
+        safe_acca, singles = select_daily_bundles()
+        msg = format_message(safe_acca, singles)
+        await send_message(msg)
+        # aztán 24 óra
+        await asyncio.sleep(24*60*60)
+
+# =======================
 # Main
 # =======================
 
-async def main():
-    safe_acca, risky_singles = select_daily_bundles()
-    msg = format_message(safe_acca, risky_singles)
-    await send_message(msg)
-    print(msg)
+async def main(run_once: bool = False):
+    if run_once:
+        safe_acca, singles = select_daily_bundles()
+        msg = format_message(safe_acca, singles)
+        await send_message(msg)
+        print(msg)
+    else:
+        await daily_loop()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Teszt: asyncio.run(main(run_once=True))
+    # Production (folyamatos futás és napi poszt 10:00-kor):
+    asyncio.run(main(run_once=False))
